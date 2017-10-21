@@ -1,0 +1,92 @@
+<style>body { background: black;margin: 0; }</style>
+<canvas></canvas>
+
+<style>iframe { position: absolute;top: 0;left: 0;width: 30%;height: 45%; }</style>
+<iframe src="//player.vimeo.com/video/77179682#t=9s?autoplay=1&loop=1" frameborder="0"></iframe>
+
+<script src="//cdnjs.cloudflare.com/ajax/libs/pizzicato/0.6.1/Pizzicato.min.js"></script>
+<script>
+navigator.getUserMedia({ audio: true }, location.reload, alert)
+window.canvas = window.document.querySelector('canvas')
+window.ctx = canvas.getContext('2d')
+window.sound = new Pz.Sound({
+  source: 'input',
+  options: { detached: true },
+  // source: 'file',
+  // options: { path: '/vimeo-77179682.mp3' },
+}, () => {
+  window.analyser = Pz.context.createAnalyser()
+  analyser.fftSize = 1024
+  window.frequency = new Uint8Array(analyser.frequencyBinCount)
+  window.timedomain = new Uint8Array(analyser.frequencyBinCount)
+  const loop = () => {
+    analyser.getByteFrequencyData(frequency)
+    analyser.getByteTimeDomainData(timedomain)
+    canvas.width = window.innerWidth
+    canvas.height = window.innerHeight
+    ctx.fillStyle = 'black'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.fillStyle = 'white'
+    ctx.strokeStyle = 'white'
+    // bar(canvas, ctx, frequency, timedomain)
+    // line(canvas, ctx, frequency, timedomain)
+    circle(canvas, ctx, frequency, timedomain)
+    window.requestAnimationFrame(loop)
+  }
+  sound.connect(analyser)
+  sound.play()
+  loop()
+})
+
+function bar(canvas, ctx, frequency, timedomain) {
+  const sliceWidth = canvas.width / analyser.frequencyBinCount * 10
+  frequency.map((d, i) => {
+    if (i % 10) return
+    ctx.fillRect(i * (sliceWidth + 1), canvas.height - d * 2.5, sliceWidth, d * 2.5)
+  })
+}
+
+function circle(canvas, ctx, frequency, timedomain) {
+  x = canvas.width / 2
+  y = canvas.height / 2
+  ctx.lineWidth = 4
+
+  frequency.slice(0, 128).map((d, i) => {
+    if (i % 4) return
+    ctx.beginPath()
+    ctx.arc(x, y, i * 1.4, 0, Math.PI * (d / 256))
+    ctx.stroke()
+  })
+}
+
+function line(canvas, ctx, frequency, timedomain) {
+  ctx.lineWidth = 4
+  ctx.beginPath()
+
+  var sliceWidth = canvas.width / analyser.frequencyBinCount * 24
+  var x = 0
+  var previousX
+  var previousY
+  for (var i = 0; i < analyser.frequencyBinCount; i++) {
+    if (i % 24) continue
+
+    var v = timedomain[i] / 128.0
+    var y = v * canvas.height / 4.2
+
+    if (i === 0) {
+      ctx.moveTo(x, y)
+    } else {
+      var xc = (previousX + x) / 2
+      var yc = (previousY + y) / 2
+
+      ctx.quadraticCurveTo(previousX, previousY, xc, yc)
+    }
+
+    previousX = x
+    previousY = y
+    x += sliceWidth
+  }
+  ctx.lineTo(previousX + sliceWidth, previousY)
+  ctx.stroke()
+}
+</script>
