@@ -1,3 +1,6 @@
+<meta charset="utf-8">
+<meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no">
+
 <style>body { background: black;margin: 0; }</style>
 <canvas></canvas>
 
@@ -6,15 +9,15 @@
 
 <script src="//cdnjs.cloudflare.com/ajax/libs/pizzicato/0.6.1/Pizzicato.min.js"></script>
 <script>
-navigator.getUserMedia({ audio: true }, location.reload, alert)
+// navigator.getUserMedia({ audio: true }, location.reload, alert)
+/Android|iPhone|iPad/i.test(navigator.userAgent) && document.querySelector('iframe').remove()
 window.canvas = window.document.querySelector('canvas')
 window.ctx = canvas.getContext('2d')
-window.sound = new Pz.Sound({
-  source: 'input',
-  options: { detached: true },
-  // source: 'file',
-  // options: { path: '/vimeo-77179682.mp3' },
-}, () => {
+// const config = /Android|iPhone|iPad/i.test(navigator.userAgent)
+//   ? { source: 'file', options: { path: '/vimeo-77179682.mp3' } }
+//   : { source: 'input', options: { detached: true } }
+const config = { source: 'input', options: { detached: true } }
+window.sound = new Pz.Sound(config, () => {
   window.analyser = Pz.context.createAnalyser()
   analyser.fftSize = 1024
   window.frequency = new Uint8Array(analyser.frequencyBinCount)
