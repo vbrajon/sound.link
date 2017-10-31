@@ -4,27 +4,40 @@
 <style>body { background: black;margin: 0; }</style>
 <canvas></canvas>
 
-<style>iframe { position: absolute;top: 0;left: 0;width: 30%;height: 45%; }</style>
-<iframe src="//player.vimeo.com/video/77179682#t=9s?autoplay=1&loop=1" frameborder="0"></iframe>
+<!--<style>iframe { position: absolute;top: 0;left: 0;width: 30%;height: 45%; }</style>
+<iframe src="//player.vimeo.com/video/77179682#t=9s?autoplay=1&loop=1" frameborder="0"></iframe>-->
 
+<script src="https://cdn.rawgit.com/andrewplummer/Sugar/2.0.2/dist/sugar.js"></script>
+<script>Sugar.Array.defineInstance({ chunk: (arr, size) => Array(Math.ceil(arr.length / size)).fill().map((_, i) => arr.slice(i * size, i * size + size)) })</script>
+<script>Sugar.extend({ objectPrototype: true })</script>
+
+<script src="//cdnjs.cloudflare.com/ajax/libs/dat-gui/0.6.5/dat.gui.min.js"></script>
 <script src="//cdnjs.cloudflare.com/ajax/libs/pizzicato/0.6.1/Pizzicato.min.js"></script>
 <script>
-// navigator.getUserMedia({ audio: true }, location.reload, alert)
-/Android|iPhone|iPad/i.test(navigator.userAgent) && document.querySelector('iframe').remove()
 window.canvas = window.document.querySelector('canvas')
 window.ctx = canvas.getContext('2d')
-// const config = /Android|iPhone|iPad/i.test(navigator.userAgent)
-//   ? { source: 'file', options: { path: '/vimeo-77179682.mp3' } }
-//   : { source: 'input', options: { detached: true } }
-const config = { source: 'input', options: { detached: true } }
-window.sound = new Pz.Sound(config, () => {
+window.gui = new dat.GUI()
+window.intensity = 1
+window.level_num = 16
+window.volume = 1
+window.db = 0
+gui.add(window, 'intensity', 0, 2).step(.1).name('Intensity')
+gui.add(window, 'level_num', 0, 64).step(2).name('Level Count')
+gui.add(window, 'db')
+window.sound = new Pz.Sound({ source: 'input', options: { detached: true } }, () => {
   window.analyser = Pz.context.createAnalyser()
+  // window.gainNode = analyser.context.createGain()
+  // gainNode.connect(analyser.context.destination)
+
   analyser.fftSize = 1024
   window.frequency = new Uint8Array(analyser.frequencyBinCount)
   window.timedomain = new Uint8Array(analyser.frequencyBinCount)
   const loop = () => {
     analyser.getByteFrequencyData(frequency)
     analyser.getByteTimeDomainData(timedomain)
+    // levels = frequency.chunk(frequency.length % 16)
+    // db = 20 * Math.log10(gainNode.gain.value)
+
     canvas.width = window.innerWidth
     canvas.height = window.innerHeight
     ctx.fillStyle = 'black'
@@ -33,6 +46,7 @@ window.sound = new Pz.Sound(config, () => {
     ctx.strokeStyle = 'white'
     // bar(canvas, ctx, frequency, timedomain)
     // line(canvas, ctx, frequency, timedomain)
+    bass(canvas, ctx, frequency, timedomain)
     circle(canvas, ctx, frequency, timedomain)
     window.requestAnimationFrame(loop)
   }
@@ -41,24 +55,43 @@ window.sound = new Pz.Sound(config, () => {
   loop()
 })
 
-function bar(canvas, ctx, frequency, timedomain) {
-  const sliceWidth = canvas.width / analyser.frequencyBinCount * 10
-  frequency.map((d, i) => {
-    if (i % 10) return
-    ctx.fillRect(i * (sliceWidth + 1), canvas.height - d * 2.5, sliceWidth, d * 2.5)
+function bass(canvas, ctx, frequency, timedomain) {
+  x = canvas.width / 2
+  y = canvas.height / 2
+  ctx.lineWidth = canvas.width / level_num / 3
+  Array.from(frequency)
+  .chunk(frequency.length / level_num)
+  .map('sum')
+  .map(s => s * intensity / level_num / 256)
+  .map((d, i) => {
+    if (i > 4 || d < .5 || volume < .5) return
+    ctx.beginPath()
+    ctx.arc(x, y, i * ctx.lineWidth * 1.4, 0, Math.PI * 2)
+    ctx.stroke()
   })
 }
 
 function circle(canvas, ctx, frequency, timedomain) {
   x = canvas.width / 2
   y = canvas.height / 2
-  ctx.lineWidth = 4
-
-  frequency.slice(0, 128).map((d, i) => {
-    if (i % 4) return
+  ctx.lineWidth = canvas.width / level_num / 3
+  Array.from(frequency)
+  .chunk(frequency.length / level_num)
+  .map('sum')
+  .map(s => s * intensity / level_num / 256)
+  .map((d, i) => {
+    if (i < 4) return
     ctx.beginPath()
-    ctx.arc(x, y, i * 1.4, 0, Math.PI * (d / 256))
+    ctx.arc(x, y, i * ctx.lineWidth * 1.4, 0, Math.PI * 2 * d)
     ctx.stroke()
+  })
+}
+
+function bar(canvas, ctx, frequency, timedomain) {
+  const sliceWidth = canvas.width / analyser.frequencyBinCount * 10
+  frequency.map((d, i) => {
+    if (i % 10) return
+    ctx.fillRect(i * (sliceWidth + 1), canvas.height - d * 2.5, sliceWidth, d * 2.5)
   })
 }
 
