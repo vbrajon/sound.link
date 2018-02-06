@@ -4,12 +4,11 @@
 <style>body { background: black;margin: 0; }</style>
 <canvas></canvas>
 
-<!--<style>iframe { position: absolute;top: 0;left: 0;width: 30%;height: 45%; }</style>
-<iframe src="//player.vimeo.com/video/77179682#t=9s?autoplay=1&loop=1" frameborder="0"></iframe>-->
-
 <script src="https://cdn.rawgit.com/andrewplummer/Sugar/2.0.2/dist/sugar.js"></script>
-<script>Sugar.Array.defineInstance({ chunk: (arr, size) => Array(Math.ceil(arr.length / size)).fill().map((_, i) => arr.slice(i * size, i * size + size)) })</script>
-<script>Sugar.extend({ objectPrototype: true })</script>
+<script>
+  Sugar.Array.defineInstance({ chunk: (arr, size) => Array(Math.ceil(arr.length / size)).fill().map((_, i) => arr.slice(i * size, i * size + size)) })
+  Sugar.extend({ objectPrototype: true })
+</script>
 
 <script src="//cdnjs.cloudflare.com/ajax/libs/dat-gui/0.6.5/dat.gui.min.js"></script>
 <script src="//cdnjs.cloudflare.com/ajax/libs/pizzicato/0.6.1/Pizzicato.min.js"></script>
@@ -18,16 +17,13 @@ window.canvas = window.document.querySelector('canvas')
 window.ctx = canvas.getContext('2d')
 window.gui = new dat.GUI()
 window.intensity = 1
-window.level_num = 16
-window.volume = 1
-window.db = 0
-gui.add(window, 'intensity', 0, 2).step(.1).name('Intensity')
-gui.add(window, 'level_num', 0, 64).step(2).name('Level Count')
-gui.add(window, 'db')
+window.chunk_size = 16
+gui.add(window, 'chunk_size', [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]).name('Group Size')
 window.sound = new Pz.Sound({ source: 'input', options: { detached: true } }, () => {
   window.analyser = Pz.context.createAnalyser()
-  // window.gainNode = analyser.context.createGain()
-  // gainNode.connect(analyser.context.destination)
+  window.meter = createAudioMeter(Pz.context)
+  gui.add(meter, 'volume', 0, 1).listen()
+  gui.add(meter, 'clipping').listen()
 
   analyser.fftSize = 1024
   window.frequency = new Uint8Array(analyser.frequencyBinCount)
@@ -35,8 +31,6 @@ window.sound = new Pz.Sound({ source: 'input', options: { detached: true } }, ()
   const loop = () => {
     analyser.getByteFrequencyData(frequency)
     analyser.getByteTimeDomainData(timedomain)
-    // levels = frequency.chunk(frequency.length % 16)
-    // db = 20 * Math.log10(gainNode.gain.value)
 
     canvas.width = window.innerWidth
     canvas.height = window.innerHeight
@@ -44,55 +38,51 @@ window.sound = new Pz.Sound({ source: 'input', options: { detached: true } }, ()
     ctx.fillRect(0, 0, canvas.width, canvas.height)
     ctx.fillStyle = 'white'
     ctx.strokeStyle = 'white'
+
     // bar(canvas, ctx, frequency, timedomain)
-    // line(canvas, ctx, frequency, timedomain)
-    bass(canvas, ctx, frequency, timedomain)
     circle(canvas, ctx, frequency, timedomain)
+    meter.checkClipping()
     window.requestAnimationFrame(loop)
   }
   sound.connect(analyser)
+  sound.connect(meter)
   sound.play()
   loop()
 })
 
-function bass(canvas, ctx, frequency, timedomain) {
-  x = canvas.width / 2
-  y = canvas.height / 2
-  ctx.lineWidth = canvas.width / level_num / 3
-  Array.from(frequency)
-  .chunk(frequency.length / level_num)
-  .map('sum')
-  .map(s => s * intensity / level_num / 256)
-  .map((d, i) => {
-    if (i > 4 || d < .5 || volume < .5) return
-    ctx.beginPath()
-    ctx.arc(x, y, i * ctx.lineWidth * 1.4, 0, Math.PI * 2)
-    ctx.stroke()
-  })
-}
-
 function circle(canvas, ctx, frequency, timedomain) {
   x = canvas.width / 2
   y = canvas.height / 2
-  ctx.lineWidth = canvas.width / level_num / 3
-  Array.from(frequency)
-  .chunk(frequency.length / level_num)
-  .map('sum')
-  .map(s => s * intensity / level_num / 256)
-  .map((d, i) => {
-    if (i < 4) return
-    ctx.beginPath()
-    ctx.arc(x, y, i * ctx.lineWidth * 1.4, 0, Math.PI * 2 * d)
-    ctx.stroke()
-  })
+  ctx.lineWidth = canvas.width / frequency.length * chunk_size / 4
+  const levels = Array.from(frequency)
+    .chunk(chunk_size)
+    .map('sum')
+    .map(s => s / chunk_size / 256)
+  // if (meter.checkClipping()) levels
+  //     .slice(0, 4)
+  //     .map((d, i) => {
+  //       ctx.beginPath()
+  //       ctx.arc(x, y, i * ctx.lineWidth * 1.4, 0, Math.PI * 2)
+  //       ctx.stroke()
+  //     })
+  levels
+    .map((d, i) => {
+      // if (i < 4) return
+      ctx.beginPath()
+      ctx.arc(x, y, i * ctx.lineWidth * 1.4, 0, Math.PI * 2 * d)
+      ctx.stroke()
+    })
 }
 
 function bar(canvas, ctx, frequency, timedomain) {
-  const sliceWidth = canvas.width / analyser.frequencyBinCount * 10
-  frequency.map((d, i) => {
-    if (i % 10) return
-    ctx.fillRect(i * (sliceWidth + 1), canvas.height - d * 2.5, sliceWidth, d * 2.5)
-  })
+  const width = canvas.width / frequency.length * chunk_size
+  Array.from(frequency)
+    .chunk(chunk_size)
+    .map('sum')
+    .map(s => s / chunk_size / 256)
+    .map((d, i) => {
+      ctx.fillRect(i * width, canvas.height * (1 - d), width, canvas.height * d)
+    })
 }
 
 function line(canvas, ctx, frequency, timedomain) {
@@ -124,5 +114,47 @@ function line(canvas, ctx, frequency, timedomain) {
   }
   ctx.lineTo(previousX + sliceWidth, previousY)
   ctx.stroke()
+}
+
+function createAudioMeter(audioContext, clipLevel, averaging, clipLag) {
+  var processor = audioContext.createScriptProcessor(512)
+  processor.onaudioprocess = volumeAudioProcess
+  processor.clipping = false
+  processor.lastClip = 0
+  processor.volume = 0
+  processor.clipLevel = clipLevel || 0.98
+  processor.averaging = averaging || 0.95
+  processor.clipLag = clipLag || 750
+  processor.connect(audioContext.destination)
+  processor.checkClipping = function () {
+    if (!this.clipping)
+      return false
+    if ((this.lastClip + this.clipLag) < window.performance.now())
+      this.clipping = false
+    return this.clipping
+  }
+  processor.shutdown = function () {
+    this.disconnect()
+    this.onaudioprocess = null
+  }
+
+  return processor
+}
+
+function volumeAudioProcess(event) {
+  var buf = event.inputBuffer.getChannelData(0)
+  var bufLength = buf.length
+  var sum = 0
+  var x
+  for (var i = 0; i < bufLength; i++) {
+    x = buf[i]
+    if (Math.abs(x) >= this.clipLevel) {
+      this.clipping = true
+      this.lastClip = window.performance.now()
+    }
+    sum += x * x
+  }
+  var rms = Math.sqrt(sum / bufLength)
+  this.volume = Math.max(rms, this.volume * this.averaging)
 }
 </script>
