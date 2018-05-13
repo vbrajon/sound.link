@@ -5,6 +5,7 @@
 <canvas></canvas>
 
 <script>
+// Draw
 canvas = document.querySelector('canvas')
 ctx = canvas.getContext('2d')
 canvas.width = window.innerWidth
@@ -14,52 +15,116 @@ cy = canvas.height / 2
 cos = Math.cos
 sin = Math.sin
 
-ctrl = { pause: false, inverse: false }
-window.addEventListener('click', () => ctrl.pause = !ctrl.pause)
+// Controls
+ctrl = { pause: true, inverse: false }
+window.addEventListener('click', toggle)
 window.addEventListener('keypress', e => {
   const key = e.code.toLowerCase().replace(/^key/, '')
-  if (key === 'space') ctrl.pause = !ctrl.pause
-  if (key === 'i') ctrl.inverse = !ctrl.inverse
+  if (key === 'space') toggle()
+  if (key === 'i') inverse()
   // console.log(key, e)
 })
 
-let c = 0
-let up = true
+// Sound
+audioctx = new AudioContext()
+// analyser = audioctx.createAnalyser()
+// analyser.smoothingTimeConstant = 0
+// analyser.fftSize = 2048
+// frequency = new Uint8Array(analyser.frequencyBinCount)
+// timedomain = new Uint8Array(analyser.frequencyBinCount)
+// navigator.getUserMedia({ video: false, audio: true }, stream => audioctx.createMediaStreamSource(stream).connect(analyser), console.error)
+
+tracks = [
+  { path: 'Bass.flac', fn: bass },
+  { path: 'Drums.flac', fn: drum },
+  { path: 'Tambourine + Conga.flac', fn: drum, i: 1 },
+  { path: 'Guitars.flac', fn: guitar },
+  { path: 'Strings + French Horns.flac', fn: violin },
+  { path: 'Organ + Electric Piano.flac', fn: wind },
+  { path: 'Voices.flac', fn: voice },
+  { path: 'Lead Vocal.flac', fn: voice, i: 1 },
+]
+tracks.map(load)
+function load(track) {
+  const request = new XMLHttpRequest()
+  request.open('GET', 'tracks/' + track.path, true)
+  request.responseType = 'arraybuffer'
+  request.onload = () => audioctx.decodeAudioData(request.response, buffer => track.buffer = buffer)
+  request.send()
+}
+function play(time = 0) {
+  tracks.map(track => {
+    track.analyser = audioctx.createAnalyser()
+    track.analyser.smoothingTimeConstant = 0
+    track.analyser.fftSize = 2048
+    track.frequency = new Uint8Array(track.analyser.frequencyBinCount)
+    track.timedomain = new Uint8Array(track.analyser.frequencyBinCount)
+    track.source = audioctx.createBufferSource()
+    track.source.buffer = track.buffer
+    track.source.connect(track.analyser)
+    track.source.connect(audioctx.destination)
+    track.source.start(0, time)
+  })
+}
+function stop() {
+  tracks.map(track => track.source.stop(0))
+}
+function toggle() {
+  ctrl.pause = !ctrl.pause
+  if (ctrl.pause) {
+    window.time += (Date.now() - window.startAt) / 1000
+    stop()
+  }
+  if (!ctrl.pause) {
+    window.startAt = Date.now()
+    play(time)
+  }
+}
+window.time = 8
+
+// Loop
 loop()
 function loop() {
   requestAnimationFrame(loop)
   if (ctrl.pause) return
   ctx.fillRect(0, 0, canvas.width, canvas.height)
-  if (c > 1) up = false
-  if (c < 0) up = true
-  if (up) c += .02
-  else c -= .01
-  bass(c)
-  violin(c)
-  guitar(c)
-  organ(c)
-  percussions(c)
-  chorus(c)
-  lead(c)
+  tracks.map(track => {
+    if (!track.analyser) return
+    track.analyser.getByteFrequencyData(track.frequency)
+    // track.analyser.getByteTimeDomainData(track.timedomain)
+    const avg = track.frequency.reduce((acc, v) => acc + v, 0) / track.frequency.length / 256
+    if (avg < .05) return
+    track.fn(avg, track.i)
+  })
   if (ctrl.inverse) inverse()
 }
 
-// lead - voice
-function lead(percentage) {
+// function microphone() {
+//   ctx.strokeStyle = 'white'
+//   ctx.lineWidth = 5
+//   ctx.lineCap = 'round'
+//   sum = arr => arr.reduce((acc, v) => acc + v, 0)
+//   chunk = (arr, size) => Array(Math.ceil(arr.length / size)).fill().map((_, i) => arr.slice(i * size, i * size + size))
+//   const chunksize = 256
+//   const chunks = chunk(frequency, chunksize).map(arr => sum(arr) / chunksize / 256).map((v, i) => arc(35 + 5 * i, 0, 360 * v))
+// }
+
+function voice(percentage, i = 0) {
   ctx.strokeStyle = 'rgba(255, 255, 255, .8)'
   ctx.lineWidth = 1
-  const size = percentage * 50
-  arc(260)
-  linecircle(260, 260 + size, 10, 5)
+  const size = percentage * 100
+  const radius = 250 + i * 10
+  arc(radius)
+  linecircle(radius, radius + size, 10, i && 5)
 }
 
-// chorus - voice
-function chorus(percentage) {
-  ctx.strokeStyle = 'rgba(255, 255, 255, .8)'
+function drum(percentage, i = 0) {
+  ctx.strokeStyle = 'white'
   ctx.lineWidth = 1
-  const size = percentage * 50
-  arc(250)
-  linecircle(250, 250 + size, 10)
+  arc(140)
+  ctx.lineWidth = 5
+  const size = percentage * 30
+  linecircle(145, 145 + size, 8, i && 4)
 }
 
 // violin - string
@@ -89,7 +154,7 @@ function guitar(percentage) {
 }
 
 // organ - wind
-function organ(percentage) {
+function wind(percentage) {
   ctx.strokeStyle = 'rgba(255, 255, 255, ' + (.2 + percentage / 2) + ')'
   ctx.lineWidth = 1 + percentage * 5
   const size = percentage * 50
@@ -106,18 +171,8 @@ function bass(percentage) {
   arc(size)
 }
 
-// percussions - drum
-function percussions(percentage) {
-  ctx.strokeStyle = 'white'
-  ctx.lineWidth = 1
-  arc(140)
-  const size = percentage * 30
-  ctx.lineWidth = 5
-  linecircle(145, 145 + size, 8)
-  linecircle(145, 145 + (size / 2), 8, 4)
-}
-
 function inverse() {
+  ctrl.inverse = !ctrl.inverse
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
   const data = imageData.data
   for(let i = 0;i < data.length;i += 4) {
@@ -145,10 +200,8 @@ function line(x, y, dx, dy, delta = true) {
   ctx.stroke()
 }
 
-function arc(radius, a, da, delta = true) {
+function arc(radius, a = 0, da = 360, delta = true) {
   if (radius <= 0) return
-  if (!a) a = 0
-  if (!da) da = 360
   ctx.beginPath()
   if (delta) ctx.arc(cx, cy, radius, Math.PI / 180 * a, Math.PI / 180 * a + Math.PI / 180 * da)
   if (!delta) ctx.arc(cx, cy, radius, Math.PI / 180 * a, Math.PI / 180 * da)
