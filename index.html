@@ -17,16 +17,31 @@ sin = Math.sin
 
 // Controls
 ctrl = { pause: true, inverse: false }
-window.addEventListener('click', toggle)
+window.addEventListener('click', e => {
+  ctrl.pause = !ctrl.pause
+  ctrl.pause ? stop() : play()
+})
+window.addEventListener('dblclick', e => {
+  stop()
+  ctrl.pause = false
+  window.startTime = e.clientX / window.innerWidth * window.tracks[0].buffer.duration
+  play()
+})
 window.addEventListener('keypress', e => {
   const key = e.code.toLowerCase().replace(/^key/, '')
-  if (key === 'space') toggle()
-  if (key === 'i') inverse()
+  if (key === 'space') {
+    ctrl.pause = !ctrl.pause
+    ctrl.pause ? stop() : play()
+  }
+  if (key === 'i') {
+    ctrl.inverse = !ctrl.inverse
+    inverse()
+  }
   // console.log(key, e)
 })
 
 // Sound
-audioctx = new AudioContext()
+// audioctx = new AudioContext()
 // analyser = audioctx.createAnalyser()
 // analyser.smoothingTimeConstant = 0
 // analyser.fftSize = 2048
@@ -34,26 +49,31 @@ audioctx = new AudioContext()
 // timedomain = new Uint8Array(analyser.frequencyBinCount)
 // navigator.getUserMedia({ video: false, audio: true }, stream => audioctx.createMediaStreamSource(stream).connect(analyser), console.error)
 
-tracks = [
+window.startTime = 8
+window.tracks = [
   { path: 'Bass.flac', fn: bass },
   { path: 'Drums.flac', fn: drum },
   { path: 'Tambourine + Conga.flac', fn: drum, i: 1 },
-  { path: 'Guitars.flac', fn: guitar },
-  { path: 'Strings + French Horns.flac', fn: violin },
+  { path: 'Guitars.flac', fn: string },
+  { path: 'Strings + French Horns.flac', fn: string, i: 1 },
   { path: 'Organ + Electric Piano.flac', fn: wind },
   { path: 'Voices.flac', fn: voice },
   { path: 'Lead Vocal.flac', fn: voice, i: 1 },
 ]
-tracks.map(load)
+window.download$ = Promise.all(tracks.map(load))
 function load(track) {
-  const request = new XMLHttpRequest()
-  request.open('GET', 'tracks/' + track.path, true)
-  request.responseType = 'arraybuffer'
-  request.onload = () => audioctx.decodeAudioData(request.response, buffer => track.buffer = buffer)
-  request.send()
+  return fetch('tracks/' + track.path).then(res => res.arrayBuffer()).then(buffer => track.buffer = buffer)
 }
-function play(time = 0) {
-  tracks.map(track => {
+function decode(track) {
+  return window.audioctx.decodeAudioData(track.buffer).then(buffer => track.buffer = buffer)
+}
+function play() {
+  if (!window.audioctx) {
+    window.audioctx = new AudioContext()
+    return download$.then(() => Promise.all(tracks.map(decode))).then(play)
+  }
+  window.startAt = Date.now()
+  window.tracks.map(track => {
     track.analyser = audioctx.createAnalyser()
     track.analyser.smoothingTimeConstant = 0
     track.analyser.fftSize = 2048
@@ -63,24 +83,14 @@ function play(time = 0) {
     track.source.buffer = track.buffer
     track.source.connect(track.analyser)
     track.source.connect(audioctx.destination)
-    track.source.start(0, time)
+    track.source.start(0, window.startTime)
   })
 }
 function stop() {
-  tracks.map(track => track.source.stop(0))
+  if (!window.startAt) return
+  window.startTime += (Date.now() - window.startAt) / 1000
+  window.tracks.map(track => track.source.stop(0))
 }
-function toggle() {
-  ctrl.pause = !ctrl.pause
-  if (ctrl.pause) {
-    window.time += (Date.now() - window.startAt) / 1000
-    stop()
-  }
-  if (!ctrl.pause) {
-    window.startAt = Date.now()
-    play(time)
-  }
-}
-window.time = 8
 
 // Loop
 loop()
@@ -88,7 +98,8 @@ function loop() {
   requestAnimationFrame(loop)
   if (ctrl.pause) return
   ctx.fillRect(0, 0, canvas.width, canvas.height)
-  tracks.map(track => {
+  timeline()
+  window.tracks.map(track => {
     if (!track.analyser) return
     track.analyser.getByteFrequencyData(track.frequency)
     // track.analyser.getByteTimeDomainData(track.timedomain)
@@ -109,6 +120,13 @@ function loop() {
 //   const chunks = chunk(frequency, chunksize).map(arr => sum(arr) / chunksize / 256).map((v, i) => arc(35 + 5 * i, 0, 360 * v))
 // }
 
+function timeline() {
+  ctx.strokeStyle = 'rgba(255, 255, 255, .2)'
+  ctx.lineWidth = 20
+  const dtime = (Date.now() - window.startAt) / 1000
+  line(-cx, cy - 10, window.innerWidth * (window.startTime + dtime) / window.tracks[0].buffer.duration, 0)
+}
+
 function voice(percentage, i = 0) {
   ctx.strokeStyle = 'rgba(255, 255, 255, .8)'
   ctx.lineWidth = 1
@@ -127,29 +145,16 @@ function drum(percentage, i = 0) {
   linecircle(145, 145 + size, 8, i && 4)
 }
 
-// violin - string
-function violin(percentage) {
+function string(percentage, i = 0) {
   ctx.strokeStyle = 'white'
   ctx.lineWidth = 3
   ctx.lineCap = 'round'
   const size = percentage * 50
-  arc(200 - 15, 5 - size, 20)
-  arc(200 - 10, 20, 50 + size)
-  arc(200 - 5, 180 - size, 220 + size)
-  arc(200, 12 + size, 60 + size)
-  ctx.lineCap = 'butt'
-}
-
-// guitar - string
-function guitar(percentage) {
-  ctx.strokeStyle = 'white'
-  ctx.lineWidth = 5
-  ctx.lineCap = 'round'
-  const size = percentage * 50
-  arc(50 - 15, 5 - size, 20)
-  arc(50 - 10, 20, 50 + size)
-  arc(50 - 5, 180 - size, 220 + size)
-  arc(50, 12 + size, 60 + size)
+  const center = i === 0 ? 50 : 200
+  arc(center - 15, 5 - size, 20)
+  arc(center - 10, 20, 50 + size)
+  arc(center - 5, 180 - size, 220 + size)
+  arc(center, 12 + size, 60 + size)
   ctx.lineCap = 'butt'
 }
 
@@ -172,7 +177,6 @@ function bass(percentage) {
 }
 
 function inverse() {
-  ctrl.inverse = !ctrl.inverse
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
   const data = imageData.data
   for(let i = 0;i < data.length;i += 4) {
