@@ -5,6 +5,7 @@
 <canvas></canvas>
 
 <script>
+if (!window.AudioContext) window.AudioContext = webkitAudioContext // SAFARI
 // Draw
 canvas = document.querySelector('canvas')
 ctx = canvas.getContext('2d')
@@ -19,13 +20,12 @@ sin = Math.sin
 ctrl = { pause: true, inverse: false }
 window.addEventListener('click', e => {
   ctrl.pause = !ctrl.pause
+  if (e.clientY > window.innerHeight - 20 && window.tracks[0].buffer) {
+    stop()
+    ctrl.pause = false
+    window.startTime = e.clientX / window.innerWidth * window.tracks[0].buffer.duration
+  }
   ctrl.pause ? stop() : play()
-})
-window.addEventListener('dblclick', e => {
-  stop()
-  ctrl.pause = false
-  window.startTime = e.clientX / window.innerWidth * window.tracks[0].buffer.duration
-  play()
 })
 window.addEventListener('keypress', e => {
   const key = e.code.toLowerCase().replace(/^key/, '')
@@ -51,21 +51,23 @@ window.addEventListener('keypress', e => {
 
 window.startTime = 8
 window.tracks = [
-  { path: 'Bass.flac', fn: bass },
+  { path: 'Bass.flac', fn: wind },
   { path: 'Drums.flac', fn: drum },
   { path: 'Tambourine + Conga.flac', fn: drum, i: 1 },
   { path: 'Guitars.flac', fn: string },
   { path: 'Strings + French Horns.flac', fn: string, i: 1 },
-  { path: 'Organ + Electric Piano.flac', fn: wind },
+  { path: 'Organ + Electric Piano.flac', fn: bass },
   { path: 'Voices.flac', fn: voice },
   { path: 'Lead Vocal.flac', fn: voice, i: 1 },
 ]
+// progress bar + play button |>
 window.download$ = Promise.all(tracks.map(load))
 function load(track) {
   return fetch('tracks/' + track.path).then(res => res.arrayBuffer()).then(buffer => track.buffer = buffer)
 }
 function decode(track) {
-  return window.audioctx.decodeAudioData(track.buffer).then(buffer => track.buffer = buffer)
+  // window.audioctx.decodeAudioData(track.buffer).then(buffer => track.buffer = buffer)
+  return new Promise((resolve, reject) => window.audioctx.decodeAudioData(track.buffer, buffer => resolve(track.buffer = buffer))) // SAFARI
 }
 function play() {
   if (!window.audioctx) {
@@ -103,9 +105,11 @@ function loop() {
     if (!track.analyser) return
     track.analyser.getByteFrequencyData(track.frequency)
     // track.analyser.getByteTimeDomainData(track.timedomain)
-    const avg = track.frequency.reduce((acc, v) => acc + v, 0) / track.frequency.length / 256
-    if (avg < .05) return
-    track.fn(avg, track.i)
+    // const mean = track.frequency.reduce((acc, v) => acc + v / 256, 0) / track.frequency.length
+    const max = track.frequency.reduce((acc, v) => acc > v / 256 ? acc : v / 256, 0)
+    if (max < .4) return
+    if (track.fn === string) track.fn(track.frequency, track.i)
+    else track.fn(max, track.i)
   })
   if (ctrl.inverse) inverse()
 }
@@ -130,7 +134,7 @@ function timeline() {
 function voice(percentage, i = 0) {
   ctx.strokeStyle = 'rgba(255, 255, 255, .8)'
   ctx.lineWidth = 1
-  const size = percentage * 100
+  const size = percentage * 40
   const radius = 250 + i * 10
   arc(radius)
   linecircle(radius, radius + size, 10, i && 5)
@@ -141,29 +145,32 @@ function drum(percentage, i = 0) {
   ctx.lineWidth = 1
   arc(140)
   ctx.lineWidth = 5
-  const size = percentage * 30
+  const size = percentage * 20
   linecircle(145, 145 + size, 8, i && 4)
 }
 
-function string(percentage, i = 0) {
+function string(frequency, i = 0) {
   ctx.strokeStyle = 'white'
   ctx.lineWidth = 3
   ctx.lineCap = 'round'
-  const size = percentage * 50
   const center = i === 0 ? 50 : 200
-  arc(center - 15, 5 - size, 20)
-  arc(center - 10, 20, 50 + size)
-  arc(center - 5, 180 - size, 220 + size)
-  arc(center, 12 + size, 60 + size)
+
+  chunk = (arr, size) => Array(Math.ceil(arr.length / size)).fill().map((_, i) => arr.slice(i * size, i * size + size))
+  chunk(frequency, 16).map((arr, i) => {
+    const size = arr.reduce((acc, v) => acc > v / 256 ? acc : v / 256, 0)
+    if (i < 16) return arc(center - 15, 360 / 16 * i, 360 / 16 * size)
+    if (i < 32) return arc(center - 10, 360 / 16 * i, 360 / 16 * size)
+    if (i < 48) return arc(center - 5, 360 / 16 * i, 360 / 16 * size)
+    return arc(center, 360 / 16 * i, 360 / 16 * size)
+  })
   ctx.lineCap = 'butt'
 }
 
 // organ - wind
 function wind(percentage) {
-  ctx.strokeStyle = 'rgba(255, 255, 255, ' + (.2 + percentage / 2) + ')'
-  ctx.lineWidth = 1 + percentage * 5
-  const size = percentage * 50
-  linecircle(60, 120)
+  ctx.strokeStyle = 'rgba(255, 255, 255, ' + (.1 + percentage / 4) + ')'
+  ctx.lineWidth = percentage * 6
+  linecircle(60, 120, 4)
 }
 
 // bass - string
